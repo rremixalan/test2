@@ -1,0 +1,74 @@
+From abe55519fdde910aadd3e0740ab98bdb29b0b3a1 Mon Sep 17 00:00:00 2001
+From: Jacob Chen <jacob.chen@insyde.com>
+Date: Wed, 28 Jan 2026 03:58:40 -0500
+Subject: [PATCH] Add new send method to support addressed IPMB request
+
+Signed-off-by: Jacob Chen <jacob.chen@insyde.com>
+---
+ ipmbbridged.cpp | 43 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/ipmbbridged.cpp b/ipmbbridged.cpp
+index 0508fcc..d218725 100644
+--- a/ipmbbridged.cpp
++++ b/ipmbbridged.cpp
+@@ -1137,6 +1137,47 @@ auto ipmbHandleRequest = [](boost::asio::yield_context yield,
+     return channel->requestAdd(yield, request);
+ };
+ 
++auto ipmbHandleRequestWithAddress = [](boost::asio::yield_context yield,
++                                       uint8_t reqChannel, uint8_t netfn,
++                                       uint8_t lun, uint8_t cmd, uint8_t addr,
++                                       std::vector<uint8_t> dataReceived) {
++    IpmbChannel *channel = getChannel(reqChannel);
++
++    if (channel == nullptr)
++    {
++        phosphor::logging::log<phosphor::logging::level::ERR>(
++            "ipmbHandleRequestWithAddress: requested channel does not exist");
++        return returnStatus(ipmbResponseStatus::invalid_param);
++    }
++
++    // check outstanding request list for valid sequence number
++    uint8_t seqNum = 0;
++    bool seqValid = channel->seqNumGet(seqNum);
++    if (!seqValid)
++    {
++        phosphor::logging::log<phosphor::logging::level::WARNING>(
++            "ipmbHandleRequestWithAddress: cannot add more requests to the list");
++        return returnStatus(ipmbResponseStatus::busy);
++    }
++
++    uint8_t bmcSlaveAddress = channel->getBmcSlaveAddress();
++    uint8_t rqSlaveAddress = (addr? addr: channel->getRqSlaveAddress());
++
++    // construct the request to add it to outstanding request list
++    std::shared_ptr<IpmbRequest> request = std::make_shared<IpmbRequest>(
++        rqSlaveAddress, netfn, ipmbRsLun, bmcSlaveAddress, seqNum, lun, cmd,
++        dataReceived);
++
++    if (!request->timer)
++    {
++        phosphor::logging::log<phosphor::logging::level::ERR>(
++            "ipmbHandleRequestWithAddress: timer object does not exist");
++        return returnStatus(ipmbResponseStatus::error);
++    }
++
++    return channel->requestAdd(yield, request);
++};
++
+ void addUpdateSlaveAddrHandler()
+ {
+     // callback to handle dbus signal of updating slave addr
+@@ -1243,6 +1284,8 @@ int main(int argc, char *argv[])
+         server.add_interface(ipmbObj, ipmbDbusIntf);
+ 
+     ipmbIface->register_method("sendRequest", std::move(ipmbHandleRequest));
++    ipmbIface->register_method("sendRequestToAddress",
++                               std::move(ipmbHandleRequestWithAddress));
+     ipmbIface->register_method("SlotIpmbRequest",
+                                std::move(slotIpmbHandleRequest));
+     ipmbIface->initialize();
+-- 
+2.34.1
+

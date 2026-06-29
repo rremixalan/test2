@@ -1,0 +1,30 @@
+From b77a418a19cc2d7349f522c227bdac4468f4e278 Mon Sep 17 00:00:00 2001
+From: Jacob Chen <jacob.chen@insyde.com>
+Date: Wed, 28 Jan 2026 04:00:42 -0500
+Subject: [PATCH] Use new dbus method to send IPMB request with target slave
+ address
+
+Signed-off-by: Jacob Chen <jacob.chen@insyde.com>
+---
+ src/bridgingcommands.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/bridgingcommands.cpp b/src/bridgingcommands.cpp
+index 332a9d9..43793eb 100644
+--- a/src/bridgingcommands.cpp
++++ b/src/bridgingcommands.cpp
+@@ -321,9 +321,9 @@ ipmi::Cc Bridging::handleIpmbChannel(ipmi::Context::ptr ctx,
+     // send request to IPMB
+     boost::system::error_code ec;
+     auto ipmbResponse = ctx->bus->yield_method_call<IPMBResponse>(
+-        ctx->yield, ec, ipmbBus, ipmbObj, ipmbIntf, "sendRequest",
++        ctx->yield, ec, ipmbBus, ipmbObj, ipmbIntf, "sendRequestToAddress",
+         ipmbMeChannelNum, ipmbRequest.netFn, ipmbRequest.rqLun, ipmbRequest.cmd,
+-        ipmbRequest.data);
++        ipmbRequest.address, ipmbRequest.data);
+     if (ec)
+     {
+         phosphor::logging::log<phosphor::logging::level::ERR>(
+-- 
+2.34.1
+
