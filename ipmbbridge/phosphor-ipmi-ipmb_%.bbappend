@@ -4,6 +4,7 @@ SRC_URI += " file://0001-Add-new-send-method-to-support-addressed-IPMB-reques.pa
              file://0002-Re-design-ipmb-channel-indexing-to-provide-multi-typ.patch \
              file://0003-Backward-compatibility-for-libmci-using-b-6-and-t-0x.patch \
              file://ipmb-channels.json \
+             file://ipmb-channels.json \
            "
 
 do_install:append() {
