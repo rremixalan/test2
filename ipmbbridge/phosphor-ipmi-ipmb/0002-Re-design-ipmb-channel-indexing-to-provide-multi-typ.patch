@@ -1,0 +1,117 @@
+From 8b211ab8ed00c32796f68b4f8ae1b9158d1c23b3 Mon Sep 17 00:00:00 2001
+From: Jacob Chen <jacob.chen@insyde.com>
+Date: Wed, 4 Feb 2026 12:02:04 -0500
+Subject: [PATCH] Re-design ipmb channel indexing to provide
+ multi-type/instance support
+
+Signed-off-by: Jacob Chen <jacob.chen@insyde.com>
+---
+ ipmbbridged.cpp | 33 +++++++++++++++++++++++++++------
+ ipmbbridged.hpp |  2 +-
+ 2 files changed, 28 insertions(+), 7 deletions(-)
+
+diff --git a/ipmbbridged.cpp b/ipmbbridged.cpp
+index d218725..d28d087 100644
+--- a/ipmbbridged.cpp
++++ b/ipmbbridged.cpp
+@@ -699,7 +699,7 @@ uint8_t IpmbChannel::getRqSlaveAddress()
+ 
+ uint8_t IpmbChannel::getDevIndex()
+ {
+-    return channelIdx >> 2;
++    return channelIdx >> 3;
+ }
+ 
+ uint8_t IpmbChannel::getChannelIdx()
+@@ -709,7 +709,7 @@ uint8_t IpmbChannel::getChannelIdx()
+ 
+ ipmbChannelType IpmbChannel::getChannelType()
+ {
+-    return static_cast<ipmbChannelType>((channelIdx & 3));
++    return static_cast<ipmbChannelType>((channelIdx & 7));
+ }
+ 
+ void IpmbChannel::addFilter(const uint8_t respNetFn, const uint8_t cmd)
+@@ -997,6 +997,27 @@ static IpmbChannel *getChannel(uint8_t reqChannel)
+ 
+     return nullptr;
+ }
++static IpmbChannel *getChannel(uint8_t reqChannel, uint8_t addr)
++{
++    ipmbChannelType rqChnlT = static_cast<ipmbChannelType>(reqChannel % 5);
++    if (rqChnlT != ipmbChannelType::me &&
++        rqChnlT != ipmbChannelType::ipmb)
++        return nullptr;
++
++    uint8_t reqidx = ((addr << 3) | (reqChannel % 5));
++                std::string amsgToLog;
++    auto channel =
++        std::find_if(ipmbChannels.begin(), ipmbChannels.end(),
++                     [reqidx](IpmbChannel &channel) {
++                         return channel.getChannelIdx() == reqidx;
++                     });
++    if (channel != ipmbChannels.end())
++    {
++        return &(*channel);
++    }
++
++    return nullptr;
++}
+ 
+ static int initializeChannels()
+ {
+@@ -1014,10 +1035,10 @@ static int initializeChannels()
+     }
+     try
+     {
+-        uint8_t devIndex = 0;
+         auto data = nlohmann::json::parse(configFile, nullptr);
+         for (const auto &channelConfig : data["channels"])
+         {
++            uint8_t devIndex = 0;
+             const std::string &typeConfig = channelConfig["type"];
+             const std::string &slavePath = channelConfig["slave-path"];
+             uint8_t bmcAddr = channelConfig["bmc-addr"];
+@@ -1032,7 +1053,7 @@ static int initializeChannels()
+ 
+             auto channel = ipmbChannels.emplace(
+                 ipmbChannels.end(), io, bmcAddr, reqAddr,
+-                ((devIndex << 2) | static_cast<uint8_t>(type)), commandFilter);
++                ((devIndex << 3) | static_cast<uint8_t>(type)), commandFilter);
+             if (channel->ipmbChannelInit(slavePath.c_str()) < 0)
+             {
+                 phosphor::logging::log<phosphor::logging::level::ERR>(
+@@ -1141,7 +1162,7 @@ auto ipmbHandleRequestWithAddress = [](boost::asio::yield_context yield,
+                                        uint8_t reqChannel, uint8_t netfn,
+                                        uint8_t lun, uint8_t cmd, uint8_t addr,
+                                        std::vector<uint8_t> dataReceived) {
+-    IpmbChannel *channel = getChannel(reqChannel);
++    IpmbChannel *channel = getChannel(reqChannel, addr-1);
+ 
+     if (channel == nullptr)
+     {
+@@ -1161,7 +1182,7 @@ auto ipmbHandleRequestWithAddress = [](boost::asio::yield_context yield,
+     }
+ 
+     uint8_t bmcSlaveAddress = channel->getBmcSlaveAddress();
+-    uint8_t rqSlaveAddress = (addr? addr: channel->getRqSlaveAddress());
++    uint8_t rqSlaveAddress = channel->getRqSlaveAddress();
+ 
+     // construct the request to add it to outstanding request list
+     std::shared_ptr<IpmbRequest> request = std::make_shared<IpmbRequest>(
+diff --git a/ipmbbridged.hpp b/ipmbbridged.hpp
+index eaba7ae..68a0f45 100644
+--- a/ipmbbridged.hpp
++++ b/ipmbbridged.hpp
+@@ -158,7 +158,7 @@ enum class ipmbChannelType
+ {
+     ipmb = 0,
+     me = 1,
+-    slot_ipmb = 2
++    slot_ipmb = 4
+ };
+ 
+ /**
+-- 
+2.34.1
+
